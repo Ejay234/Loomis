@@ -149,7 +149,7 @@ def generate_script(chapter_title: str, chapter_text: str) -> str:
                 wait_time = 2 ** attempt
                 logging.error(f"API error (attempt {attempt + 1}/{max_retries}): {e}")
 
-                if attempt == max_retries - 1:
+                if attempt < max_retries - 1:
                     logging.info(f"Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                 else:
@@ -161,3 +161,26 @@ def generate_script(chapter_title: str, chapter_text: str) -> str:
                 f"{len(full_script)} total chars")
 
     return full_script
+
+# Usage: python script_generator.py
+if __name__ == "__main__":
+    test_text = """
+    Ecosystems are complex communities of living organisms interacting with
+    their physical environment. An ecosystem includes all the living things
+    (plants, animals, and organisms) in a given area, interacting with each
+    other and with their non-living environments (weather, earth, sun, soil,
+    climate, atmosphere). In an ecosystem, each organism has its own niche
+    or role to play.
+    """
+    print("Generating test script...")
+    print("(Make sure GEMINI_API_KEY is set in your environment)")
+    print()
+    try:
+        script = generate_script("Test: Ecosystems", test_text)
+        print("=" * 60)
+        print("GENERATED SCRIPT")
+        print("=" * 60)
+        print(script)
+    except ValueError as e:
+        print(f"Error: {e}")
+
