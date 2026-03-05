@@ -28,20 +28,14 @@ import logging
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [EXTRACTOR] %(message)s")
 
 
-def is_chapter_heading(text: str, font_size: float = 0, avg_font_size: float = 12.0) -> bool:
+def is_heading_candidate(text: str) -> bool:
     """
-    Checks if a text block looks like a chapter heading.
-
-    Two strategies to detect headings:
-    1. Text Pattern: Does the text match patterns like "Chapter 1", "CHAPTER ONE",
-       "Chapter 1: Introduction", etc.?
-    2. Font Size: Is the font significantly larger than the average body text?
-       (Textbooks typically use 16-24pt fonts for chapter titles vs 10-12pt for body)
+    Checks if a line could be a heading
+    The actual length-based detection is done in extract_chapters() using statistical analysis
+    This function only checks content rules.
 
     Args:
         text: The text content of the block
-        font_size: The font size of this block (from PyMuPDF metadata)
-        avg_font_size: The average font size across the document (for comparison)
 
     Returns:
         True if this looks like a chapter heading, False otherwise
@@ -49,37 +43,85 @@ def is_chapter_heading(text: str, font_size: float = 0, avg_font_size: float = 1
     # Clean up the text for pattern matching
     stripped = text.strip()
 
-    # Skip empty lines or very long lines (headings are usually short)
-    if not stripped or len(stripped) > 200:
+    # Skip empty lines
+    if not stripped:
         return False
 
-    # Strategy 1: Regex pattern matching for common chapter heading formats
-    # This catches: "Chapter 1", "CHAPTER ONE", "Chapter 1: Introduction",
+    # Must start with an uppercase letter
+    if not stripped[0].isupper():
+        return False
+
+    # Must have at least 3 words
+    if len(stripped.split()) < 3:
+        return False
+
+    # Must not end with punctuation
+    if stripped.endswith((',',';')):
+        return False
+
+    # Must have balanced parentheses
+    if stripped.count('(') != stripped.count(')'):
+        return False
+
+    # Must not end with an abbreviation
+    last_word = stripped.split()[-1]
+    if re.match(r'[A-Z][A-Za-z]?\d*$', last_word) and len(last_word) <= 4:
+        return False
+
+    # Classic Chapter X pattern
     chapter_pattern = re.compile(
-        r"^chapter\s+"                      # Must start with 'chapter' (case-insensitive)
-        r"(\d+|[IVXLC]+|"                   # Followed by a number (1, 2, 3...) or Roman numeral
-        r"one|two|three|four|five|six|"      # ...or a spelled-out number
-        r"seven|eight|nine|ten|eleven|"
-        r"twelve|thirteen|fourteen|fifteen|"
-        r"sixteen|seventeen|eighteen|"
-        r"nineteen|twenty)"
-        r"(\s*[:\-—.]\s*.*)?$",             # Optionally followed by a colon/dash and title
+        r"^chapter\s+(\d+|[IVXLC]+|one|two|three|four|five|"
+        r"six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+        r"fourteen|fifteen|sixteen|seventeen|eighteen|"
+        r"nineteen|twenty)(\s*[:\-—.]\s*.*)?$",
         re.IGNORECASE
     )
-
     if chapter_pattern.match(stripped):
-        return True
+        return True # Always true regardless of length
+    
+    return True 
 
-    # Strategy 2: Font size heuristic
-    # If the font is 1.5x or more larger than average, it's likely a heading
-    if font_size > 0 and avg_font_size > 0:
-        if font_size >= avg_font_size * 1.5:
-            # But only if the text is short enough to be a title (not a pull quote)
-            if len(stripped) < 100:
-                return True
-                
-    return False
+def compute_heading_threshold(doc: fitz.Document) -> float:
+    """
+    Scans the entire document and computes a line-length threshold for heading detection.
 
+    Logic: Body text lines cluster around a consistent length.
+    Headings are statistical outliers, hence 40% of the median line length is used as the cutoff
+
+    Args:
+        doc: An open PyMuPDF document
+
+    Returns:
+        The line-length threshold (float)
+    """
+    line_lengths = []
+    
+    for page in doc:
+        blocks = page.get_text("dict")["blocks"]
+        for block in blocks:
+            if block["type"] != 0:
+                continue
+            for line in block["lines"]:
+                text = ""
+                for span in line["spans"]:
+                    text += span["text"]
+                text = text.strip()
+                if text and len(text) > 5:
+                    line_lengths.append(len(text))
+    
+    if not line_lengths:
+        return 60 # Fallback
+    
+    # Sort and find the median
+    line_lengths.sort()
+    median = line_lengths[len(line_lengths) // 2]
+
+    threshold = median * 0.4
+
+    logging.info(f"Median line length: {median} chars")
+    logging.info(f"Heading threshold: {threshold:.0f} chars (40% of median)")
+
+    return threshold
 
 def clean_text(text: str) -> str:
     """
@@ -198,6 +240,10 @@ def extract_chapters(pdf_path: str) -> dict[str, str]:
     avg_font_size = get_average_font_size(doc)
     logging.info(f"Average font size: {avg_font_size:.1f}pt")
 
+    # Compute the heading length threshold
+    heading_threshold = compute_heading_threshold(doc)
+    logging.info(f"Heading threshold: {heading_threshold:.0f} chars")
+
     # These will hold our results as we scan through the PDF
     chapters = {}
     current_chapter = None
@@ -232,7 +278,7 @@ def extract_chapters(pdf_path: str) -> dict[str, str]:
                         continue
 
                     # Check if this block is a chapter heading
-                    if is_chapter_heading(line_text, line_font_size, avg_font_size):
+                    if is_heading_candidate(line_text) and len(line_text) < heading_threshold:
                         # Save the previous chapter, before starting a new one
                         if current_chapter and current_text:
                             raw_text = "\n".join(current_text)
