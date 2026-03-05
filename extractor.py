@@ -55,7 +55,6 @@ def is_chapter_heading(text: str, font_size: float = 0, avg_font_size: float = 1
 
     # Strategy 1: Regex pattern matching for common chapter heading formats
     # This catches: "Chapter 1", "CHAPTER ONE", "Chapter 1: Introduction",
-    #               "Chapter 1 — The Beginning", "CHAPTER I", etc.
     chapter_pattern = re.compile(
         r"^chapter\s+"                      # Must start with 'chapter' (case-insensitive)
         r"(\d+|[IVXLC]+|"                   # Followed by a number (1, 2, 3...) or Roman numeral
@@ -131,3 +130,178 @@ def clean_text(text: str) -> str:
     text = text.strip()
 
     return text
+
+
+def get_average_font_size(doc: fitz.Document, sample_pages: int = 10) -> float:
+    """
+    Calculates the average font size across the document by sampling pages.
+
+    Used as a baseline to detect headings
+    Any text significantly larger than the average is likely a heading
+    Sampled instead of scanning every page because textbooks can be 500+ pages
+
+    Args:
+        doc: An open PyMuPDF document
+        sample_pages: How many pages to sample (default 10)
+
+    Returns:
+        The average font size in points (e.g., 11.5)
+    """
+    font_sizes = []
+    # Sample pages evenly spaced throughout the document
+    total_pages = len(doc)
+    step = max(1, total_pages // sample_pages)
+
+    for page_num in range(0, total_pages, step):
+        page = doc[page_num]
+        # get_text("dict") returns detailed block info including font sizes
+        blocks = page.get_text("dict")["blocks"]
+        for block in blocks:
+            if block["type"] == 0:  # type 0 = text block (not image)
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        if span["text"].strip():  # Skip empty spans
+                            font_sizes.append(span["size"])
+
+    if not font_sizes:
+        return 12.0 # default font size
+
+    return sum(font_sizes) / len(font_sizes)
+
+
+def extract_chapters(pdf_path: str) -> dict[str, str]:
+    """
+    Opens a PDF and splits it into chapters.
+
+    Main fucntion to call, full process:
+    1. Opens the PDF
+    2. Calculates average font size for heading detection
+    3. Walks through every page, looking for chapter boundaries
+    4. Groups text between boundaries into chapters
+    5. Cleans each chapter's text
+
+    Args:
+        pdf_path: Path to the PDF file (e.g., "textbooks/biology101.pdf")
+
+    Returns:
+        A dictionary where:
+        - Keys are chapter titles (e.g., "Chapter 1: Introduction to Biology")
+        - Values are the cleaned text content of each chapter
+    """
+    logging.info(f"Opening PDF: {pdf_path}")
+
+    # Open the PDF document
+    doc = fitz.open(pdf_path)
+    logging.info(f"PDF has {len(doc)} pages")
+
+    # Calculate the average font size so we can detect headings
+    avg_font_size = get_average_font_size(doc)
+    logging.info(f"Average font size: {avg_font_size:.1f}pt")
+
+    # These will hold our results as we scan through the PDF
+    chapters = {}
+    current_chapter = None
+    current_text = []
+
+    # Walk through every page in the document
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+
+        # Extract text with full detail
+        blocks = page.get_text("dict")["blocks"]
+
+        for block in blocks:
+            # Skip image blocks (we only care about text)
+            if block["type"] != 0:
+                continue
+
+            # Each block can contain multiple lines, each with multiple "spans"
+            block_text = ""
+            block_font_size = 0
+
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    block_text += span["text"]
+
+                    # Track the largest font size in this block
+                    block_font_size = max(block_font_size, span["size"])
+                
+                block_text += "\n"
+
+            block_text = block_text.strip()
+
+            # Check if this block is a chapter heading
+            if is_chapter_heading(block_text, block_font_size, avg_font_size):
+                # Save the previous chapter, before starting a new one
+                if current_chapter and current_text:
+                    raw_text = "\n".join(current_text)
+                    chapters[current_chapter] = clean_text(raw_text)
+                    logging.info(
+                        f"Extracted: {current_chapter} "
+                        f"({len(chapters[current_chapter])} chars)"
+                    )
+
+                # Start a new chapter
+                current_chapter = block_text
+                current_text = []
+                logging.info(f"Found chapter heading on page {page_num + 1}: {block_text}")
+            else:
+                # Add to current chapter
+                if current_chapter and block_text:
+                    current_text.append(block_text)
+
+    # Last chapter case
+    if current_chapter and current_text:
+        raw_text = "\n".join(current_text)
+        chapters[current_chapter] = clean_text(raw_text)
+        logging.info(
+            f"Extracted: {current_chapter} "
+            f"({len(chapters[current_chapter])} chars)"
+        )
+
+    doc.close()
+
+    # No chapters case
+    if not chapters:
+        logging.warning(
+            "No chapter headings detected! "
+            "Treating the entire PDF as one chapter."
+        )
+        # Re-open and extract all text as a single
+        doc = fitz.open(pdf_path)
+        all_text = ""
+        for page in doc:
+            all_text += page.get_text() + "\n"
+        doc.close()
+        chapters["Full Document"] = clean_text(all_text)
+
+    logging.info(f"Extraction complete: {len(chapters)} chapter(s) found")
+    return chapters
+
+
+# Quick test — run this file directly to test extraction on a PDF
+# Usage: python extractor.py
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python extractor.py <path_to_pdf>")
+        print("Example: python extractor.py textbooks/biology101.pdf")
+        sys.exit(1)
+
+    pdf_path = sys.argv[1]
+    chapters = extract_chapters(pdf_path)
+
+    print(f"\n{'='*60}")
+    print(f"EXTRACTION RESULTS")
+    print(f"{'='*60}")
+    for title, text in chapters.items():
+        # Show the first 200 characters as a preview
+        preview = text[:200].replace("\n", " ")
+        print(f"\n📖 {title}")
+        print(f"   Length: {len(text):,} characters")
+        print(f"   Preview: {preview}...")
+    print(f"\n{'='*60}")
+    print(f"Total chapters: {len(chapters)}")
+
+
