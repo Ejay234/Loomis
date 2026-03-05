@@ -1,0 +1,10 @@
+google-genai
+pymupdf
+sentence-transformers
+elevenlabs
+pydub
+gTTS
+torch
+numpy
+pandas
+pytest
