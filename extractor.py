@@ -20,7 +20,7 @@ How it works:
     6. Returns a dictionary: {"Chapter 1: Title": "cleaned text...", ...}
 """
 
-import fitz  # PyMuPDF — imported as 'fitz' for historical reasons
+import fitz # PyMuPDF — imported as 'fitz' for historical reasons
 import re
 import logging
 
