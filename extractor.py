@@ -77,7 +77,7 @@ def is_chapter_heading(text: str, font_size: float = 0, avg_font_size: float = 1
             # But only if the text is short enough to be a title (not a pull quote)
             if len(stripped) < 100:
                 return True
-
+                
     return False
 
 
@@ -216,39 +216,40 @@ def extract_chapters(pdf_path: str) -> dict[str, str]:
                 continue
 
             # Each block can contain multiple lines, each with multiple "spans"
-            block_text = ""
-            block_font_size = 0
 
+            # Extract each line separatedly
+            lines_in_block = []
             for line in block["lines"]:
+                line_text = ""
+                line_font_size = 0
                 for span in line["spans"]:
-                    block_text += span["text"]
+                    line_text += span["text"]
+                    line_font_size = max(line_font_size, span["size"])
+                lines_in_block.append((line_text.strip(), line_font_size))
 
-                    # Track the largest font size in this block
-                    block_font_size = max(block_font_size, span["size"])
-                
-                block_text += "\n"
+                for line_text, line_font_size in lines_in_block:
+                    if not line_text:
+                        continue
 
-            block_text = block_text.strip()
+                    # Check if this block is a chapter heading
+                    if is_chapter_heading(line_text, line_font_size, avg_font_size):
+                        # Save the previous chapter, before starting a new one
+                        if current_chapter and current_text:
+                            raw_text = "\n".join(current_text)
+                            chapters[current_chapter] = clean_text(raw_text)
+                            logging.info(
+                                f"Extracted: {current_chapter} "
+                                f"({len(chapters[current_chapter])} chars)"
+                            )
 
-            # Check if this block is a chapter heading
-            if is_chapter_heading(block_text, block_font_size, avg_font_size):
-                # Save the previous chapter, before starting a new one
-                if current_chapter and current_text:
-                    raw_text = "\n".join(current_text)
-                    chapters[current_chapter] = clean_text(raw_text)
-                    logging.info(
-                        f"Extracted: {current_chapter} "
-                        f"({len(chapters[current_chapter])} chars)"
-                    )
-
-                # Start a new chapter
-                current_chapter = block_text
-                current_text = []
-                logging.info(f"Found chapter heading on page {page_num + 1}: {block_text}")
-            else:
-                # Add to current chapter
-                if current_chapter and block_text:
-                    current_text.append(block_text)
+                        # Start a new chapter
+                        current_chapter = line_text
+                        current_text = []
+                        logging.info(f"Found chapter heading on page {page_num + 1}: {line_text}")
+                    else:
+                        # Add to current chapter
+                        if current_chapter and line_text:
+                            current_text.append(line_text)
 
     # Last chapter case
     if current_chapter and current_text:
@@ -279,7 +280,6 @@ def extract_chapters(pdf_path: str) -> dict[str, str]:
     return chapters
 
 
-# Quick test — run this file directly to test extraction on a PDF
 # Usage: python extractor.py
 if __name__ == "__main__":
     import sys
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     chapters = extract_chapters(pdf_path)
 
     print(f"\n{'='*60}")
-    print(f"EXTRACTION RESULTS")
+    print(f"RESULTS")
     print(f"{'='*60}")
     for title, text in chapters.items():
         # Show the first 200 characters as a preview
