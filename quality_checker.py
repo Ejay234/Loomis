@@ -164,3 +164,33 @@ def save_quality_report(report: dict, chapter_title: str, output_dir: str="outpu
     with open(filepath, "w") as f:
         json.dump(report, f, indent=2)
     logging.info(f"Quality report saved to {filepath}")
+
+# Usage: python quality_checker.py
+if __name__ == "__main__":
+    # Simulated source text
+    source = """
+    Ecosystems are complex communities of living organisms interacting with
+    their physical environment. An ecosystem includes all the living things
+    in a given area. Each organism has its own niche or role to play.
+    Plants produce energy through photosynthesis using sunlight.
+    """
+    # Simulated script, one line is hallucinated 
+    script = """
+    Alex: So what exactly is an ecosystem?
+    Jordan: An ecosystem is a complex community of living organisms that interact with their physical environment.
+    Alex: And every organism has a role?
+    Jordan: Exactly, each organism has its own niche or role to play within the ecosystem.
+    Alex: I heard that ecosystems have also been discovered on Mars!
+    Jordan: Plants are really important because they produce energy through photosynthesis using sunlight.
+    """
+    print("Running quality check on test data...")
+    print("(The line about Mars should be flagged as hallucination)")
+
+    report = check_quality(source, script)
+    print(f"\nFidelity Score: {report['fidelity_score']}")
+    print(f"Passed: {report['passed']}")
+    print(f"Flagged Lines: {report['flagged_count']}/{report['total_lines']}")
+    if report['flagged_lines']:
+        print("Potentially hallucinated lines:")
+        for item in report['flagged_lines']:
+            print(f"  [{item['score']:.3f}] {item['line']}")
