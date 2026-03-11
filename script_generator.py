@@ -16,9 +16,10 @@ import google.genai as genai
 import os
 import logging
 import time
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [SCRIPT_GEN] %(message)s")
-
+load_dotenv()
 # The system prompt
 # Tells Gemini exactly what kind of output wanted
 SYSTEM_PROMPT = """
