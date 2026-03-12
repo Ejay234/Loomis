@@ -13,13 +13,14 @@ Usage:
 import argparse
 import os
 import json
+import logging
 from dotenv import load_dotenv
 
 # Import out pipeline modules
 from extractor import extract_chapters
 from script_generator import generate_script
-from tts import tts
-from quality_check import quality_check
+from tts import generate_audio
+from quality_checker import check_quality, save_quality_report
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [MAIN] %(message)s")
 load_dotenv()
@@ -53,7 +54,7 @@ def run_pipeline(pdf_path: str, chapter_filter: str = None, use_elevenlabs: bool
         logging.info(f"Filtered to {len(chapters)} chapter(s)")
 
     # Create output directory
-    os.mkdir("outputs", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
 
     for i, (chapter_name, chapter_text) in enumerate(chapters.items(), 1):
         logging.info(f"Processing [{i}/{len(chapters)}]: {chapter_name}")
